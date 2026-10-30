@@ -1,0 +1,15 @@
+# Secrets
+.env
+.env.*
+
+# Braeburn's mind: transcripts, memories, people notes. Versioned separately.
+state/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
