@@ -88,8 +88,3 @@ def roll_tool(rng: random.Random | None = None) -> Tool:
         },
     )
     return Tool(spec, roll)
-
-
-def default_tools() -> ToolRegistry:
-    # Append new tools at the end: the tool list is part of the cached prefix.
-    return ToolRegistry([roll_tool()])

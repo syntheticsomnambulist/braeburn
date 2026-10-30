@@ -99,7 +99,7 @@ Memory gets written two ways, so it does not depend on Braeburn deciding to take
 ### 3. Evolving self
 
 - `system.md` is the fixed anchor, and Braeburn can never write it.
-- The live persona lives at `state/memories/self/persona.md`, seeded once from `prompts/persona.md`. Both you and Braeburn can edit it. Changes apply from the next session on.
+- The live persona lives at `state/memories/self/persona.md`, seeded once from `prompts/persona.md`. Both you and Braeburn can edit it. Changes apply from the next session on. Until `state/` is versioned at milestone 4, the memory tool treats the persona as read-only, so an unwanted edit can't wipe it out.
 - `state/` is its own git repo, and the harness commits after every session and tick, so you can read how Braeburn changes, diff it, and roll it back.
 
 ### 4. Acting on its own
@@ -136,10 +136,10 @@ Each milestone ends with something you can try.
 
 | # | Milestone | Done when |
 |---|---|---|
-| 0 | **Scaffold:** git with your GitHub remote, `.gitignore`, `pyproject.toml` (uv), prompts moved into `prompts/`, config loading. | `uv run braeburn --help` works. |
-| 1 | **Talking Braeburn:** neutral core, Anthropic adapter, agent loop with `roll`, REPL with streaming, session logs, resume, cost ledger. | You can chat, roll dice, quit, and resume. Cache reads show up once the conversation passes the model's minimum cacheable length. |
-| 2 | **Many voices:** participant records, `/as`, the `Name:` prefix. | Two people in one session get addressed correctly. |
-| 3 | **Memory:** memory tool, preload at session start, reflection pass at session end. | Tell it something, restart, and it remembers, with Sam's facts kept apart from Alex's. |
+| 0 | ✅ **Scaffold:** git with your GitHub remote, `.gitignore`, `pyproject.toml` (uv), prompts moved into `prompts/`, config loading. | `uv run braeburn --help` works. |
+| 1 | ✅ **Talking Braeburn:** neutral core, Anthropic adapter, agent loop with `roll`, REPL with streaming, session logs, resume, cost ledger. | You can chat, roll dice, quit, and resume. Cache reads show up once the conversation passes the model's minimum cacheable length. |
+| 2 | ✅ **Many voices:** participant records in `state/people.json`, `/as`, the `Name:` prefix, `/who`. | Two people in one session get addressed correctly. |
+| 3 | ✅ **Memory:** memory tool, preload at session start and when someone joins, reflection on `/bye`, catch-up for sessions closed without it. | Tell it something, restart, and it remembers, with Sam's facts kept apart from Alex's. |
 | 4 | **Evolving self:** live persona and self-notes, `state/` git auto-commit, `/self`. | After a few sessions, `git log` in `state/` shows the persona changing. |
 | 5 | **Autonomy:** `braeburn tick`, outbox, daily cap, Task Scheduler setup, idle interjection. | A scheduled tick leaves a journal entry or a message, and the next login delivers it. |
 | 6 | **Service and web UI:** `braeburn serve` and a local web chat page. | The web UI and ticks run together against one shared state. |

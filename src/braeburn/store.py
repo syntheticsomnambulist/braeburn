@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .model import Entry, Usage, entry_from_dict, entry_to_dict, now, stamp
+from .model import Entry, Usage, UserTurn, entry_from_dict, entry_to_dict, now, stamp
 
 ENTRY_KINDS = {"user", "context", "assistant", "tool_results"}
 
@@ -26,10 +26,11 @@ class SessionLog:
     and events, written the moment they happen and never rewritten.
     """
 
-    def __init__(self, path: Path, header: dict[str, Any], entries: list[Entry]):
+    def __init__(self, path: Path, header: dict[str, Any], entries: list[Entry], reflected_upto: int = 0):
         self.path = path
         self.header = header
         self.entries = entries
+        self.reflected_upto = reflected_upto  # entries before this index are in memory
 
     @property
     def id(self) -> str:
@@ -38,6 +39,22 @@ class SessionLog:
     @property
     def system(self) -> str:
         return self.header["system"]
+
+    @property
+    def frontend(self) -> str:
+        return self.header.get("frontend", "terminal")
+
+    def unreflected_speakers(self) -> list[tuple[str, str | None]]:
+        """(name, participant id) for everyone who spoke since the last reflection."""
+        seen: dict[tuple[str, str | None], None] = {}
+        for entry in self.entries[self.reflected_upto :]:
+            if isinstance(entry, UserTurn):
+                seen.setdefault((entry.speaker, entry.speaker_id), None)
+        return list(seen)
+
+    @property
+    def needs_reflection(self) -> bool:
+        return bool(self.unreflected_speakers())
 
     @classmethod
     def create(cls, sessions_dir: Path, *, system: str, **meta: Any) -> SessionLog:
@@ -53,6 +70,7 @@ class SessionLog:
         lines = path.read_text(encoding="utf-8").splitlines()
         header = json.loads(lines[0])
         entries: list[Entry] = []
+        reflected_upto = 0
         for number, line in enumerate(lines[1:], start=2):
             try:
                 record = json.loads(line)
@@ -62,15 +80,19 @@ class SessionLog:
                 raise
             if record.get("kind") in ENTRY_KINDS:
                 entries.append(entry_from_dict(record))
-        return cls(path, header, entries)
+            elif record.get("event") == "reflected":
+                reflected_upto = record["entries"]
+        return cls(path, header, entries, reflected_upto)
 
     def append(self, entry: Entry) -> None:
         _write_line(self.path, entry_to_dict(entry))
         self.entries.append(entry)
 
     def mark(self, event: str) -> None:
-        """Record a lifecycle event (like the session ending). Not part of the transcript."""
-        _write_line(self.path, {"kind": "event", "event": event, "ts": stamp()})
+        """Record a lifecycle event ("reflected", "end"). Not part of the transcript."""
+        _write_line(self.path, {"kind": "event", "event": event, "ts": stamp(), "entries": len(self.entries)})
+        if event == "reflected":
+            self.reflected_upto = len(self.entries)
 
 
 def list_sessions(sessions_dir: Path) -> list[Path]:

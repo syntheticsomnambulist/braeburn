@@ -22,13 +22,34 @@ ANTHROPIC_API_KEY=sk-ant-...
 uv run braeburn chat
 ```
 
-Inside the chat, `/help` lists commands. `/bye` ends the session.
+Inside the chat:
+
+| Command | What it does |
+|---|---|
+| `/as NAME` | Switch who's typing. Someone new joins the conversation, and Braeburn gets its notes on them. |
+| `Alex: hi` | Say one line as someone Braeburn already knows. |
+| `/who` | Show who's in the conversation |
+| `/memory` | List Braeburn's memory files |
+| `/cost` | Show tokens and cost so far |
+| `/bye` | End the session. Braeburn updates its memory first. |
+
+If a chat is closed without `/bye`, Braeburn catches up on it the next time a chat starts.
 
 ```bash
 uv run braeburn chat --resume
 ```
 
 That reopens the most recent session. `braeburn sessions` lists recent sessions so you can pass an id to `--resume`.
+
+## Memory
+
+Braeburn's memory is plain Markdown under `state/memories/`, so you can read or edit it yourself:
+
+- `people/<id>.md`: one file per person or agent. Ids come from `state/people.json`.
+- `threads/`: running stories, projects, and AUs
+- `self/`: Braeburn's notes to itself, plus `persona.md`, the live persona
+
+Braeburn writes memory during a chat when something matters, and properly at the end of each session.
 
 ## Configuration
 
@@ -48,4 +69,4 @@ Settings come from environment variables (or `.env`):
 - `src/braeburn/`: provider-neutral core plus one adapter per model provider in `providers/`
 - `state/`: transcripts, live persona, cost ledger. Gitignored, because it's Braeburn's mind, not code.
 
-The live persona is `state/memories/self/persona.md`. It's copied from `prompts/persona.md` on first run, and edits there take effect in the next session.
+The live persona is `state/memories/self/persona.md`. It's copied from `prompts/persona.md` on first run, and edits there take effect in the next session. Braeburn can read it but can't change it yet; that comes at milestone 4, along with version history for `state/`.

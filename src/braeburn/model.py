@@ -57,9 +57,10 @@ class Usage:
 class UserTurn:
     """One message from a participant (a person or another agent)."""
 
-    speaker: str
+    speaker: str  # display name, as they appeared in this conversation
     text: str
     ts: str = field(default_factory=stamp)
+    speaker_id: str | None = None  # their participant record
     kind: str = field(default="user", init=False)
 
 

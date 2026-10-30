@@ -103,3 +103,91 @@ def test_ledger_records_each_call(cfg):
     lines = (cfg.state_dir / "ledger.jsonl").read_text(encoding="utf-8").splitlines()
     record = json.loads(lines[0])
     assert record["session"] == session.id and record["cost_usd"] == 0.02
+
+
+# Participants
+
+
+def test_each_speaker_is_tagged_with_their_participant_id(cfg):
+    engine = Engine(cfg, provider=FakeProvider([reply("hi both")]))
+    session = engine.start_session(speaker="Sam", frontend="terminal")
+    session.hear("Sam", "hello")
+    session.hear("Alex", "hey")
+    session.respond()
+
+    turns = [e for e in session.log.entries if isinstance(e, UserTurn)]
+    assert [(t.speaker, t.speaker_id) for t in turns] == [("Sam", "sam"), ("Alex", "alex")]
+    assert set(session.present) == {"sam", "alex"}
+    assert len(engine.provider.requests) == 1
+
+
+def test_joining_shows_notes_once(cfg):
+    engine = Engine(cfg, provider=FakeProvider([reply("a"), reply("b")]))
+    engine.memory.create("/memories/people/alex.md", "Keeps two lab rats, Pip and Juniper.")
+    session = engine.start_session(speaker="Sam", frontend="terminal")
+
+    session.send("Alex", "hi")
+    session.send("Alex", "again")
+
+    joins = [e for e in session.log.entries if isinstance(e, ContextNote) and "joined" in e.text]
+    assert len(joins) == 1 and "Pip and Juniper" in joins[0].text
+
+
+def test_session_start_briefs_on_memory(cfg):
+    engine = Engine(cfg, provider=FakeProvider([]))
+    engine.memory.create("/memories/people/sam.md", "Favorite apple: Honeycrisp.")
+
+    note = engine.start_session(speaker="Sam", frontend="terminal").log.entries[0].text
+
+    assert note.startswith("A new session started") and "Present: Sam." in note
+    assert "Your memory:\n/memories/" in note and "Favorite apple: Honeycrisp." in note
+
+
+def test_tools_include_memory(cfg):
+    engine = Engine(cfg, provider=FakeProvider([]))
+    assert [spec.name for spec in engine.tools.specs] == ["roll", "memory"]
+
+
+# Reflection
+
+
+def test_reflection_writes_memory_and_is_marked(cfg):
+    write = ToolCall(
+        "call_1", "memory", {"command": "create", "path": "/memories/people/sam.md", "file_text": "Likes rats."}
+    )
+    provider = FakeProvider([reply("Hi Sam."), reply("", [write], stop="tool_use"), reply("Saved Sam's notes.")])
+    engine = Engine(cfg, provider=provider)
+    session = engine.start_session(speaker="Sam", frontend="terminal")
+    session.send("Sam", "I like rats.")
+
+    result = session.reflect()
+
+    assert result.text == "Saved Sam's notes."
+    assert engine.memory.view("/memories/people/sam.md") == "     1\tLikes rats."
+    assert "/memories/people/sam.md" in provider.requests[1].transcript[-1].text
+    assert not session.log.needs_reflection and session.reflect() is None
+    purposes = [json.loads(line)["purpose"] for line in (cfg.state_dir / "ledger.jsonl").read_text().splitlines()]
+    assert purposes == ["chat", "reflect", "reflect"]
+
+
+def test_reflection_state_survives_reload(cfg):
+    engine = Engine(cfg, provider=FakeProvider([reply("hi"), reply("noted")]))
+    session = engine.start_session(speaker="Sam", frontend="terminal")
+    session.send("Sam", "hello")
+    session.reflect()
+
+    resumed = engine.resume_session(speaker="Sam")
+    assert not resumed.log.needs_reflection
+
+
+def test_sessions_closed_without_reflecting_are_found(cfg):
+    engine = Engine(cfg, provider=FakeProvider([reply("hi"), reply("hi"), reply("noted")]))
+    abandoned = engine.start_session(speaker="Sam", frontend="terminal")
+    abandoned.send("Sam", "bye, closing the window")
+    finished = engine.start_session(speaker="Alex", frontend="terminal")
+    finished.send("Alex", "hello")
+    finished.reflect()
+    engine.start_session(speaker="Kit", frontend="terminal")  # never spoke
+
+    assert [s.id for s in engine.unreflected_sessions()] == [abandoned.id]
+    assert engine.unreflected_sessions(exclude=abandoned.id) == []

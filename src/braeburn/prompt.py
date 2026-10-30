@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .config import Config
 from .model import AssistantTurn, ContextNote, Entry, ToolResult, ToolResults, UserTurn, now
+from .people import Participant, slug
 
 
 def persona_path(cfg: Config) -> Path:
@@ -48,13 +49,28 @@ def _when(moment: datetime) -> str:
     return f"{moment:%A %Y-%m-%d %H:%M} {moment.tzname()}"
 
 
-def session_start_note(frontend: str, channel: str | None, speaker: str) -> str:
+def _names(participants: list[Participant]) -> str:
+    return ", ".join(p.name for p in participants)
+
+
+def session_start_note(frontend: str, channel: str | None, participants: list[Participant]) -> str:
     where = f"{frontend} ({channel})" if channel else frontend
-    return f"A new session started {_when(now())} on {where}. Present: {speaker}."
+    return f"A new session started {_when(now())} on {where}. Present: {_names(participants)}."
 
 
-def resume_note(speaker: str) -> str:
-    return f"The session resumed {_when(now())}. Present: {speaker}."
+def resume_note(participants: list[Participant]) -> str:
+    return f"The session resumed {_when(now())}. Present: {_names(participants)}."
+
+
+def joined_note(participant: Participant) -> str:
+    return f"{participant.name} joined the conversation."
+
+
+def reflection_note(cfg: Config, speakers: list[tuple[str, str | None]]) -> str:
+    """The end-of-session instruction, from prompts/reflect.md."""
+    listing = "\n".join(f"- {name}: /memories/people/{pid or slug(name)}.md" for name, pid in speakers)
+    template = (cfg.prompts_dir / "reflect.md").read_text(encoding="utf-8").strip()
+    return template.replace("{participants}", listing)
 
 
 REFUSAL_NOTE = (

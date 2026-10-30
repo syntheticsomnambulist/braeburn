@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 
 from .config import load_config
@@ -14,9 +15,18 @@ from .store import list_sessions
 
 HELP = """\
 Commands:
-  /cost   tokens and cost so far this session
-  /help   this list
-  /bye    end the session (also /quit, /exit, Ctrl+C at the prompt)"""
+  /as NAME   switch who's typing (they join the conversation if they're new)
+  /who       who's in this conversation
+  /memory    list Braeburn's memory files
+  /cost      tokens and cost so far this session
+  /help      this list
+  /bye       end the session; Braeburn updates its memory first (also /quit, /exit, Ctrl+C)
+
+Start a line with a known name and a colon (Alex: hi) to say one line as them."""
+
+# "Alex: hello" says one line as Alex, but only if Alex is already known, so
+# an ordinary "Note: ..." isn't mistaken for a speaker.
+PREFIX = re.compile(r"^([^\s:/][^:]{0,39}):\s+(.+)$")
 
 
 def fmt_usage(usage: Usage) -> str:
@@ -30,9 +40,19 @@ def show_text(text: str) -> None:
     print(text, end="", flush=True)
 
 
+def first_line(text: str, limit: int = 100) -> str:
+    line = text.strip().splitlines()[0] if text.strip() else ""
+    return line if len(line) <= limit else line[: limit - 1] + "…"
+
+
 def show_tool(call: ToolCall, result: ToolResult) -> None:
-    status = "failed" if result.is_error else "ok"
-    print(f"\n  ({call.name} {status}: {result.output})\n", flush=True)
+    if call.name == "memory":
+        target = call.args.get("path") or call.args.get("old_path") or "/memories"
+        what = f"memory {call.args.get('command', '?')} {target}"
+    else:
+        what = f"{call.name}: {first_line(result.output)}"
+    failed = f" failed: {first_line(result.output)}" if result.is_error else ""
+    print(f"\n  ({what}{failed})", flush=True)
 
 
 def show_recent(session: Session, count: int = 2) -> None:
@@ -52,6 +72,38 @@ def ask_name() -> str:
         name = input("Who's here? ").strip()
         if name:
             return name
+
+
+def reflect(session: Session, debug: bool) -> Usage:
+    """Let Braeburn update its memory. Interrupting it just leaves the
+    session to be caught up next time.
+    """
+    try:
+        reply = session.reflect(on_tool=show_tool)
+    except ProviderError as e:
+        print(f"\n[error] {e} It'll catch up next time.")
+        return Usage()
+    except KeyboardInterrupt:
+        print("\n[skipped; it'll catch up next time]")
+        return Usage()
+    if reply is None:
+        return Usage()
+    summary = first_line(reply.text, 200) or "(nothing noted)"
+    print(f"\n  Braeburn noted: {summary}")
+    if debug:
+        print(fmt_usage(reply.usage))
+    return reply.usage
+
+
+def catch_up(engine: Engine, exclude: str | None, debug: bool) -> None:
+    pending = engine.unreflected_sessions(exclude=exclude)
+    if not pending:
+        return
+    plural = "s" if len(pending) > 1 else ""
+    print(f"Braeburn is catching up on {len(pending)} earlier conversation{plural}…")
+    for session in pending:
+        reflect(session, debug)
+    print()
 
 
 def run_chat(args: argparse.Namespace) -> int:
@@ -75,9 +127,11 @@ def run_chat(args: argparse.Namespace) -> int:
         except LookupError as e:
             print(f"[error] {e}", file=sys.stderr)
             return 1
+        catch_up(engine, exclude=session.id, debug=args.debug)
         print(f"Resumed session {session.id}.")
         show_recent(session)
     else:
+        catch_up(engine, exclude=None, debug=args.debug)
         session = engine.start_session(speaker=speaker, frontend="terminal")
         print(f"Session {session.id}. Type /help for commands.")
 
@@ -90,13 +144,28 @@ def run_chat(args: argparse.Namespace) -> int:
             line = "/bye"
         if not line:
             continue
+
         if line.startswith("/"):
-            command = line.split()[0].lower()
+            command, _, rest = line.partition(" ")
+            command, rest = command.lower(), rest.strip()
             if command in ("/bye", "/quit", "/exit"):
+                if session.log.needs_reflection:
+                    print("Braeburn is updating its memory…")
+                    total += reflect(session, args.debug)
                 session.end()
                 print(f"Bye. This session cost ${total.cost_usd:.4f}.")
                 return 0
-            if command == "/help":
+            if command == "/as":
+                if not rest:
+                    print("Usage: /as NAME")
+                    continue
+                speaker = session.join(rest).name if rest.lower() != speaker.lower() else speaker
+                print(f"Now typing as {speaker}.")
+            elif command == "/who":
+                print("Present: " + ", ".join(p.name for p in session.present.values()))
+            elif command == "/memory":
+                print(engine.memory.tree())
+            elif command == "/help":
                 print(HELP)
             elif command == "/cost":
                 print(fmt_usage(total))
@@ -104,9 +173,14 @@ def run_chat(args: argparse.Namespace) -> int:
                 print(f"Unknown command {command}. Type /help.")
             continue
 
+        who, text = speaker, line
+        match = PREFIX.match(line)
+        if match and engine.people.find(f"terminal:{match[1].strip().lower()}"):
+            who, text = match[1].strip(), match[2]
+
         print("Braeburn: ", end="", flush=True)
         try:
-            reply = session.send(speaker, line, on_text=show_text, on_tool=show_tool)
+            reply = session.send(who, text, on_text=show_text, on_tool=show_tool)
         except ProviderError as e:
             hint = " Try again in a moment." if e.retryable else ""
             print(f"\n[error] {e}{hint}")

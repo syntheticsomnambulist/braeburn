@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from braeburn.model import AssistantTurn, ContextNote, ModelRequest, ToolCall, ToolResult, ToolResults, Usage, UserTurn
 from braeburn.providers.anthropic import AnthropicProvider, echo_content, parse_message
-from braeburn.tools import default_tools
+from braeburn.tools import ToolRegistry, roll_tool
 
 
 def provider() -> AnthropicProvider:
@@ -13,7 +13,7 @@ def provider() -> AnthropicProvider:
 
 def request(transcript) -> ModelRequest:
     return ModelRequest(
-        system="SYSTEM", transcript=transcript, tools=default_tools().specs, effort="medium", max_tokens=1000
+        system="SYSTEM", transcript=transcript, tools=ToolRegistry([roll_tool()]).specs, effort="medium", max_tokens=1000
     )
 
 
